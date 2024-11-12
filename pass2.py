@@ -1,165 +1,79 @@
-import re as regex
-import itertools
-import json
 import os
 
-# Clear the terminal before starting the program
-os.system('cls' if os.name == 'nt' else 'clear')
+# Read input files
+ic_file = open('inter_code.txt', 'r')
+symtab_file = open('SymTab.txt', 'r')
+lit_file = open('literals.txt', 'r')
+output_file = open('pass2_output.txt', 'w')
 
-# Clear the Expanded code file before running
-with open("output/expcode.asm",'w') as file:
-    pass
-file.close()
+# Create dictionaries for symbol table and literal table
+symtab = {}
+for line in symtab_file:
+    if line.strip():
+        symbol, address = line.strip().split()
+        symtab[symbol] = address
 
-def get_key(val: str, dict: dict) -> any:
-    """
-    Function to get key from a dictionary based on value
-    """
-    for key, value in dict.items():
-        if val == value:
-            return key
-    return None
+littab = {}
+lit_count = 1
+for line in lit_file:
+    if line.strip():
+        parts = line.strip().split()
+        if len(parts) >= 2 and '**' not in parts[1]:
+            value = parts[0].replace("='", "").replace("'", "")
+            littab[str(lit_count)] = (value, parts[1])
+            lit_count += 1
 
-def process_params(param: str):
-    """
-    Function to process strings of the type "(P,1)", "(C,11)", etc.
-    Returns a tuple of the character corresponding to the table
-    and the position of the parameter
-    """
-    pattern = r'\(([^,]+),(\d+)\)'
-    match = regex.match(pattern, param)
-    if match:
-        component1 = match.group(1)
-        component2 = int(match.group(2))
-        return component1, component2
-    else:
-        return None
-    
-def convert(lst):
-    """
-    Function to convert list of items into space separated values
-    """
-    return ' '.join(lst)
-
-# Input File(s)
-kpdtabFile = open('input/kpdtab.json', 'r')
-mdtFile = open('input/mdt.asm', 'r')
-mntFile = open('input/mnt.json', 'r')
-pntabFile = open('input/pnt.json', 'r')
-callsFile = open('input/calls.asm', 'r')
-
-# Expanded Code (Output) File
-expcodeFile = open('output/expcode.asm', 'a')
-
-# Tables
-kpdtab = json.load(kpdtabFile)
-mnt = json.load(mntFile)
-pntab = json.load(pntabFile)
-
-# Regex pattern to split on occurrence of one or more spaces
-spacePattern = r'\s+'
-
-for line in callsFile:
-    # Skip blank lines and remove beginning and trailing whitespace(s)
-    if line == '\n': continue
-    line = line.strip()
-
-    # Split the line into words
-    cmd = regex.split(spacePattern, line.rstrip())
-
-    macroName = cmd[0]      # 0th item of call statement is macro name
-    MPList = cmd[1::]       # Remaining items are parameters of macro
-
-    # npp: number of positional parameters
-    # nkp: number of keyword parameters
-    mdtPointer, kpdtPointer, npp, nkp = "","","",""
-
-    for key,value in mnt.items():
-        if value['name'] == macroName:
-            mdtPointer = int(value['mdtp'])  # Convert to integer
-            kpdtPointer = value['kpdtp']
-            npp = int(value['pp'])           # Convert to integer
-            nkp = int(value['kp'])           # Convert to integer
-            break
-    
-    # total number of parameters in the macro
-    tot = npp + nkp
-
-    # Create the skeleton of the Actual Parameter table based on the
-    # Parameter name table of the corresponding macro
-    APTAB = {}
-    # Initialize APTAB with parameter positions
-    for pos, param_name in pntab[macroName].items():
-        APTAB[pos] = ""
-    aptPointer = 1
-
-    # Check to see if macro call corresponds to a valid macro definition
-    if mdtPointer == "":
-        print("No such macro exists")
+# Process each line of intermediate code
+for line in ic_file:
+    if not line.strip():
         continue
 
-    # Processing parameters, building APTAB
-    for parameter in MPList:
-        # Remove trailing commas
-        if parameter[-1] == ',':
-            parameter = parameter.replace(',','',1)
+    parts = line.strip().split()
+    if len(parts) < 2:
+        continue
 
-        # Keyword Parameter
-        if '=' in parameter:
-            eqIndex = parameter.index('=')
-            paramName = parameter[0:eqIndex:]
-            paramValue = parameter[eqIndex + 1::]
-            for pos, name in pntab[macroName].items():
-                if name == paramName:
-                    APTAB[pos] = paramValue
-                    break
+    lc = parts[0] if parts[0].isdigit() else ""
+    output_line = ""
 
-        # Positional parameter
-        else:
-            if str(aptPointer) in APTAB:
-                APTAB[str(aptPointer)] = parameter
-                aptPointer += 1
+    # Process different parts of the instruction
+    if "(IS" in line:
+        # Get opcode
+        opcode = parts[1].split(",")[1].replace(")", "")
+        op1 = ""
+        op2 = ""
 
-    # Assign default values to parameters that haven't been
-    # assigned a value in the call statement
-    if nkp > 0:
-        for entry in kpdtab.values():
-            if entry["macro"] == macroName and entry["value"] != "---":
-                for pos, name in pntab[macroName].items():
-                    if name == entry["name"] and (pos not in APTAB or not APTAB[pos]):
-                        APTAB[pos] = entry["value"]
+        # Process operands
+        for part in parts[2:]:
+            if "(RG," in part:
+                reg_num = part.split(",")[1].replace(")", "")
+                if not op1:
+                    op1 = reg_num
+                else:
+                    op2 = reg_num
+            elif "(S," in part:
+                sym_idx = part.split(",")[1].replace(")", "")
+                for symbol, addr in symtab.items():
+                    if sym_idx == symbol:
+                        op2 = addr
+            elif "(L," in part:
+                lit_idx = part.split(",")[1].replace(")", "")
+                if lit_idx in littab:
+                    op2 = littab[lit_idx][1]
 
-    # List to keep track of expanded statements of corresponding macro call
-    macroStmts = []
+        output_line = f"{lc}\t{opcode}\t{op1}\t{op2}"
 
-    # Read MDT and store the macro definition
-    mdtFile.seek(0)
-    lines = mdtFile.readlines()
-    start_line = mdtPointer - 1  # Adjust for 0-based indexing
-    for i in range(start_line, len(lines)):
-        if 'MEND' in lines[i]:
-            break
-        if i != start_line:  # Skip the macro definition line
-            macroStmts.append(lines[i].strip())
+    elif "(DL" in line:
+        opcode = parts[1].split(",")[1].replace(")", "")
+        if "(C," in parts[2]:
+            value = parts[2].split(",")[1].replace(")", "")
+            output_line = f"{lc}\t{opcode}\t{value}\t"
 
-    # Replace parameter references with parameter values from APTAB
-    for i in range(len(macroStmts)):
-        line = macroStmts[i]
-        words = line.split()
-        for j in range(len(words)):
-            if '(' in words[j]:
-                tab, pos = process_params(words[j])
-                if tab and str(pos) in APTAB:
-                    words[j] = APTAB[str(pos)]
-        macroStmts[i] = "+" + " ".join(words)
-        expcodeFile.write(macroStmts[i] + '\n')
-
-    expcodeFile.write('\n')
+    # Write to output file if we have a valid instruction
+    if output_line:
+        output_file.write(output_line + "\n")
 
 # Close all files
-kpdtabFile.close()
-mdtFile.close()
-mntFile.close()
-pntabFile.close()
-callsFile.close()
-expcodeFile.close()
+ic_file.close()
+symtab_file.close()
+lit_file.close()
+output_file.close()

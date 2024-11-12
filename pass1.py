@@ -1,156 +1,257 @@
-# Author: Shantanu Wable
-
-import re as regex
-import itertools
-import json
 import os
+import json
 
-os.system('cls' if os.name == 'nt' else 'clear')
+LC = 0 # location counter initiialization
 
-# Funtion to get key from a dictionary based on value
-def get_key(val: str, dict: dict) -> any:
-    for key, value in dict.items():
-        if val == value:
-            return key
+with open('config.json', 'r') as f:
+    data = json.load(f)
 
-# Creating the MDT file 
-with open("output/mdt.asm",'w') as file:
-    pass
-file.close()
+mnemonics = data['mnemonics']
+REG = data['registers']
 
-# Input File(s)
-inputFile = open('input/program.asm', 'r')
-# inputFile = open('Macro-Assembler/Pass-1/input/program2.asm', 'r')
+file = open('input.txt')
 
-# Output File(s)
-mdtFile = open('output/mdt.asm', 'a')
+ifp = open('inter_code.txt', 'a')
+ifp.truncate(0)
 
-# Regex pattern to split on occurrence of one or more spaces
-pattern = r'\s+'
+lit = open('literals.txt', 'a+')
+lit.truncate(0)
 
-# Flags
-mSign = False
-mDef = False
+tmp = open('tmp.txt', 'a+')
+tmp.truncate(0)
 
-# Tables
-mnt = {}
-pntab = {}
-kpdtab = {}
+symtab = {}
+pooltab = []
+words = []
 
-# Storage variables
-macroName = ""
-kpdtabIndex = 1
-kpdtabLoc = 1
-mntIndex = 1
-mdtLoc = 1
+# prints literal table
+def littab():
+    print("Lietral Table: ")
+    lit.seek(0, 0)
+    for x in lit:
+        print(x)
 
-# Loop through lines in file
-for line in inputFile:
-    # Skip blank lines and remove beginning and trailing whitespace(s)
-    if line == '\n': continue
-    line = line.strip()
+# prints pool table
+def pooltab2():
+    global pooltab
+    print("Pool Table:")
+    print(pooltab)
 
-    # Split the line into words
-    cmd = regex.split(pattern, line.rstrip())
+# prints symbol table
+def symbol():
+    global symtab
+    print("Symbol Table")
+    print(symtab)
 
-    # When 'MACRO' is encountered, set the macro signature flag
-    if len(cmd) == 1 and cmd[0] == 'MACRO':
-        mSign = True
-        continue
+# handle END directive
+def END():
+    global LC
+    pool = 0
+    z = 0
+    ifp.write("\t(AD, 02)\n")
+    lit.seek(0, 0)
+    for x in lit:
+        if"**" in x:
+            pool += 1
+            if pool == 1:
+                pooltab.append(z)
+            y = x.split()
+            tmp.write(y[0] + "\t" + str(LC) + "\n")
+            LC += 1
+        else:
+            tmp.write(x)
+        z += 1
+    lit.truncate(0)
+    tmp.seek(0,0)
+    for x in tmp:
+        lit.write(x)
+    tmp.truncate(0)
 
-    # If macro definition has been encountered, process its right next line
-    if mSign:
-        macroName = cmd.pop(0)
-        pntab[macroName] = {}
-        paramCnt = 0
-        
-        pp = 0
-        kp = 0
-        
-        
-        # Now, cmd contains the list of all the parameters
-        for parameter in cmd:
-            if ',' in parameter:
-                parameter = parameter.replace(',','')
-
-            if '&' in parameter and '=' not in parameter:
-                paramCnt += 1
-                pp += 1
-                
-                paramName = parameter[1::]
-
-                pntab[macroName][paramCnt] = paramName
-                
-            elif '&' in parameter and '=' in parameter:
-                paramCnt += 1
-
-                if kp == 0:
-                    kpdtabLoc = kpdtabIndex
-
-                kp += 1
-                
-                # Get the index of the '=' sign and 
-                eqIndex = parameter.index('=')
-                
-                paramName = parameter[1:eqIndex:]
-                paramDefValue = parameter[eqIndex + 1::]
-
-                pntab[macroName][paramCnt] = paramName
-                
-                kpdtab[kpdtabIndex] = {
-                    'index' : kpdtabIndex, 
-                    'name' : paramName, 
-                    'value' : paramDefValue if paramDefValue else '---',
-                }
-                
-                kpdtabIndex += 1
-                
+# LTORG mnemonic
+def LTORG():
+    global LC
+    pool=0
+    z=0
+    lit.seek(0,0)
+    x=lit.readlines()
+    i=0
+    while(i<len(x)):
+        f=[]
+        if("**" in x[i]):
+            j=0
+            pool+=1
+            if pool==1:
+                pooltab.append(z)
+            while(x[i][j]!="'"):
+                j+=1
+            j+=1
+            while(x[i][j]!="'"):
+                f.append(x[i][j])
+                j+=1
+            if(i!=len(x)-1):
+                ifp.write("\t(AD,05)\t(DL,02)(C,"+str(f[0])+")\n")
+                y=x[i].split()
+                tmp.write(y[0]+"\t"+str(LC)+"\n")
+                LC+=1
+                ifp.write(str(LC))
             else:
-                pass
-                
-        mSign = False
-        mDef = True
-        mnt[mntIndex] = {
-            'index' : mntIndex,
-            'name' : macroName,
-            'pp' : pp,
-            'kp' : kp,
-            'mdtp' : mdtLoc,
-            'kpdtp' : kpdtabLoc if kp else '---',
-        }
-        mntIndex += 1
-        continue
-    
-    if mDef:
-        mdtLoc += 1
-        callLine = ""
+                ifp.write("\t(AD,05)\t(DL,02)(C,"+str(f[0])+")\n")
+                y=x[i].split()
+                tmp.write(y[0]+"\t"+str(LC)+"\n")
+                LC+=1
+        else:
+            tmp.write(x[i])
+        z+=1
+        i+=1
+    lit.truncate(0)
+    tmp.seek(0,0)
+    for x in tmp:
+        lit.write(x)
+    tmp.truncate(0)
+          
+
+#handles ORIGIN mnemonic
+def ORIGIN(addr):
+    global LC
+    ifp.write("\t(AD,03)\t(C,"+str(addr)+")\n")
+    LC =int(addr)
+
+#handles DS mnemonic
+def DS(size):
+    global LC
+    ifp.write("\t(DL,01)\t(C,"+size+")\n")
+    LC=LC+int(size)
+
+#handles DC mnemonic
+def DC(value):
+    global LC
+    ifp.write("\t(DL,02)\t(C,"+value+")\n")
+    LC+=1
+
+'''
+def EQU(words):
+    global symindex
+    if words[2] in symtab.keys():
+        z=symtab[words[2]]
+        if words[0] not in symtab.keys():
+            symtab[words[0]]=(z[0],symindex)
+            symindex+=1
         
-        for command in cmd:
-            if ',' in command:
-                command = command.replace(',','')
-            if '&' in command:
-                replParamValue = f'(P,{get_key(command[1::], pntab[macroName])})'
-                callLine += replParamValue + " "
+        else:
+            w=symtab[words[0]]
+            symtab[words[0]]=(z[0],w[-1])
+    
+    #else:#error words[2] not defined 
+    '''
+ #identifies type of operands i.e. registers, literals, symbols and add approprite data in intermediate code file, literal table and symbol table as well as pool table.   
+def OTHERS(mnemonic,k):
+    global words
+    global mnemonics 
+    global symtab
+    global LC,symindex
+    z=mnemonics[mnemonic]
+    ifp.write("\t("+z[1]+","+z[0]+")\t")
+    i=0
+    y=z[-1]
+    #print("y="+str(y))
+    for i in range(1,y+1):
+        words[k+i]=words[k+i].replace(",","")
+        if(words[k+i] in REG.keys()):
+            ifp.write("(RG,"+str(REG[words[k+i]])+")")
+        elif("=" in words[k+i]):
+            #print(words[k+i])
+            lit.seek(0,2)
+            lit.write(words[k+i]+"\t**\n")
+            lit.seek(0,0)
+            x=lit.readlines()
+            #print(len(x))
+            ifp.write("(L,"+str(len(x))+")")
+        else:
+            #print(words,symtab)
+            if(words[k+i] not in symtab.keys()):
+                symtab[words[k+i]]=("**",symindex)
+                ifp.write("(S,"+str(symindex)+")")
+                symindex+=1
             else:
-                callLine += command + " "    
-                
-        mdtFile.write(callLine + '\n')
-        continue
-    
-    if len(cmd) == 1 and cmd[0] == 'MEND':
-        mdtLoc += 1
-        mDef = False
-        mdtFile.write('MEND\n')
-        continue
-    
-with open('output/mnt.json', 'w') as json_file:
-    json.dump(mnt, json_file, indent=4)
-json_file.close()
+                w=symtab[words[k+i]]
+                ifp.write("(S,"+str(w[-1])+")")
+    #print(symtab)
+    ifp.write("\n")
+    LC+=1
+ 
+ #idenifies mnemonic and redirect to resepective function    
+def detect_mn(k):
+    global words,LC
+    if(words[k]=="START"):
+        LC=int(words[1])
+        ifp.write("\t(AD,01)\t(C,"+str(LC)+')\n')
+    elif(words[k]=='END'):
+        END()
+    elif(words[k]=="LTORG"):
+       LTORG()
+    elif(words[k]=="ORIGIN"):
+       ORIGIN(words[k+1])
+    elif(words[k]=="DS"):
+        DS(words[k+1])
+    elif(words[k]=="DC"):
+        DC(words[k+1])
+    #elif(words[k]=="EQU"):
+        #EQU(words)
+    else:
+        OTHERS(words[k],k)
+    littab()
+    pooltab2()
+    symbol()
 
-with open('output/pntab.json', 'w') as json_file:
-    json.dump(pntab, json_file, indent=4)
-json_file.close()
-
-with open('output/kpdtab.json', 'w') as json_file:
-    json.dump(kpdtab, json_file, indent=4)
-json_file.close()
+#actual code execution starts from here
+symindex=0
+for line in file:
+    #print(line)
+    words=line.split()
+    #print(words)
+    if(LC>0):
+        ifp.write(str(LC))
+    print("LC=",LC)
+    print(line)
+    print(words)
+    k=0
+        
+    if words[0] in mnemonics.keys():
+        print("Mnemonic:",words[0])
+        val=mnemonics[words[0]]
+        k=0
+        detect_mn(k)
+    else:
+        print("Label:",words[0],"Mnemonic:",words[1])
+        if words[k] not in symtab.keys():
+            symtab[words[k]]=(LC,symindex)
+            #ifp.write("\t(S,"+str(symindex)+")\t")
+            symindex+=1
+            symbol()
+        else:
+            #print(words)
+            x=symtab[words[k]]
+            if x[0]=="**":
+                print("yes")
+                symtab[words[k]]=(LC,x[1])
+            #ifp.write("\t(S,"+str(symindex)+")\t")
+            symbol()
+        k=1
+        detect_mn(k)
+#print(symtab)
+#print(pooltab)
+ifp.close()
+lit.close()
+tmp.close()
+sym=open("SymTab.txt","a+")
+sym.truncate(0)
+for x in symtab:
+    sym.write(x+"\t"+str(symtab[x][0])+"\n")
+sym.close()
+pool=open("PoolTab.txt","a+")
+pool.truncate(0)
+for x in pooltab:
+    pool.write(str(x)+"\n")
+pool.close()
+if os.path.exists("tmp.txt")==True:
+    os.remove("tmp.txt")
